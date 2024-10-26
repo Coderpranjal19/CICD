@@ -1,0 +1,84 @@
+pipeline {
+    agent any
+    
+    tools{
+        maven 'maven3'
+    }
+    
+    environment{
+        SCANNER_HOME= tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Git checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Coderpranjal19/CICD.git'
+            }
+        }
+        stage('Compile') {
+            steps {
+                sh 'mvn compile'
+            }
+        }
+        stage('Unit-test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+            
+        stage('Trivy fs scan') {
+            steps {
+                sh 'trivy fs --format table -o fs.html .'
+            }
+        }
+        
+        stage('Sonar Analysis') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=taskmaster -Dsonar.projectKey=taskmaster \
+                    -Dsonar.java.binaries=target '''
+                    
+                }
+            }
+        }
+        stage('Build APP') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+        
+        stage('Nexus integration') {
+            steps {
+            withMaven(globalMavenSettingsConfig: 'settings-maven', jdk: 'jdk17', maven: 'maven3', mavenSettingsConfig: '', traceability: true) {
+                sh 'mvn deploy'
+                }
+            }
+        }
+        
+        stage('docker build and tag') {
+            steps {
+                script{
+                withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                    sh 'docker build -t pranjal1911/taskmaster:latest .'
+                    }
+                }
+            }
+        }
+        
+        stage('Trivy image scan') {
+            steps {
+                sh 'trivy image --format table -o image.html pranjal1911/taskmaster:latest'
+            }
+        }
+        
+        stage('docker push') {
+            steps {
+                script{
+                withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                    sh 'docker push pranjal1911/taskmaster:latest'
+                    }
+                }
+            }
+        }
+    }
+}
